@@ -1,0 +1,80 @@
+# ── Pilot Study Config: SeamlessM4T-v2-large LoRA fine-tuning ──
+
+# Model
+model_id: facebook/seamless-m4t-v2-large
+tgt_lang: cmn   # Mandarin Chinese (ISO 639-3)
+src_lang: jpn   # Japanese
+
+# Dataset
+dataset:
+  # Local Arrow dataset path (build_dataset.py output)
+  local_path: /Users/raymond/WorkSpace/ASMR-Data/hf_cache/seg_dataset
+  splits_path: /Users/raymond/WorkSpace/ASMR-Data/hf_cache/splits.json
+  # HF Hub repo for syncing to vast.ai (private)
+  hub_repo: null   # set after upload_dataset.py runs, e.g. "yourname/asmr-pilot-50h"
+
+# Audio segmentation params (used by build_dataset.py)
+segmentation:
+  pad_before_s: 0.2
+  pad_after_s: 0.2
+  min_dur_s: 1.5
+  max_dur_s: 30.0
+  sample_rate: 16000
+
+# LoRA
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, out_proj]
+  bias: none
+
+# Training
+train:
+  batch_size: 4
+  grad_accum_steps: 4   # effective batch size = 16
+  lr: 2.0e-4
+  warmup_steps: 200
+  scheduler: cosine
+  num_train_epochs: 3
+  bf16: true
+  gradient_checkpointing: true
+  max_audio_seconds: 25
+  max_target_tokens: 128
+  eval_steps: 500
+  save_steps: 500
+  logging_steps: 25
+  save_total_limit: 3
+  metric_for_best_model: chrf
+  greater_is_better: true
+  seed: 42
+  output_dir: out/seamless-lora-pilot
+  report_to: wandb   # or "none"
+
+# Evaluation
+eval:
+  batch_size: 8
+  num_beams: 5
+  max_new_tokens: 128
+
+  # Cascade variant: "generic" or "anime"
+  # generic = Whisper-large-v3 + NLLB-200-distilled-600M (weak baseline)
+  # anime   = Anime-Whisper + Qwen2.5-7B-Instruct (domain-expert baseline)
+  cascade_variants:
+    generic:
+      asr_model: openai/whisper-large-v3
+      mt_model: facebook/nllb-200-distilled-600M
+      # NLLB params (encoder-decoder)
+      mt_type: nllb
+      mt_src_lang: jpn_Jpan
+      mt_tgt_lang: zho_Hans
+    anime:
+      asr_model: litagin/anime-whisper
+      mt_model: Qwen/Qwen2.5-7B-Instruct
+      # Qwen params (causal LLM, prompt-based translation)
+      mt_type: qwen
+      mt_prompt: |
+        请将以下日语台词翻译成自然、口语化的简体中文。这是 ASMR / 视觉小说 风格的对白，包含情绪化和拟声词。保留原文语气与停顿（如「啊」「嗯」「哈」等），不要添加解释。
+
+        日语：{ja_text}
+        中文：

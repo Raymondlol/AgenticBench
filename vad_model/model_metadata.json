@@ -1,0 +1,21 @@
+{
+  "model_type": "encoder_decoder",
+  "whisper_model_name": "openai/whisper-base",
+  "decoder_layers": 2,
+  "decoder_heads": 8,
+  "input_shape": [
+    1,
+    80,
+    3000
+  ],
+  "output_shape": [
+    1,
+    1500
+  ],
+  "frame_duration_ms": 20,
+  "total_duration_ms": 30000,
+  "opset_version": 17,
+  "export_batch_size": 1,
+  "config_path": "",
+  "checkpoint_path": ""
+}

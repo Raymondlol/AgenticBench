@@ -1,0 +1,55 @@
+# Data (lives in sibling ASMR-Data/, but defensive)
+ASMR-Data/
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.npy
+*.arrow
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# ML artifacts
+out/
+checkpoints/
+wandb/
+hf_cache/
+runs/
+*.ckpt
+*.pt
+*.bin
+*.safetensors
+
+# VAD model (large binary, redownload from HF)
+vad_model/model.onnx
+
+# Eval artifacts (regenerate as needed)
+eval_results/
+eval_results_vad/
+eval_results_seg/
+eval_vad_bench/
+eval_seg.log
+
+# Legacy exploration artifacts (not needed for pilot)
+asmrone_results.json
+asmrone_samples/
+lrc_analysis.json
+lrc_samples/
+sample_lrc_paths.json
+scan_results.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets
+.env
+*.token
+hf_token.txt
