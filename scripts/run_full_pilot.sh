@@ -213,19 +213,25 @@ results = {
 }
 
 lines = ['# Pilot study results', '', '## 6-way comparison', '']
-lines.append(f'| {\"system\":<40} | BLEU | chrF | BERTScore F1 | n |')
-lines.append('|' + '-' * 42 + '|------|------|--------------|---|')
+lines.append('Metrics:')
+lines.append('- **chrF** (char-level F1, primary for CN): higher = better surface match')
+lines.append('- **BLEU** (n-gram precision)')
+lines.append('- **NSFW Recall**: of CN terms in reference, how many did the hypothesis preserve')
+lines.append('')
+lines.append(f'| {\"system\":<40} | chrF | BLEU | NSFW recall | NSFW F1 | n |')
+lines.append('|' + '-' * 42 + '|------|------|------|------|---|')
 for name, path in results.items():
     if not path.exists():
-        lines.append(f'| {name:<40} | - | - | - | (missing) |')
+        lines.append(f'| {name:<40} | - | - | - | - | (missing) |')
         continue
     d = json.load(open(path))
     m = d.get('metrics', {})
-    bleu = m.get('bleu', '-')
     chrf = m.get('chrf', '-')
-    bs = m.get('bertscore_f1') or '-'
+    bleu = m.get('bleu', '-')
+    nsfw_r = m.get('nsfw_vocab_recall', '-')
+    nsfw_f = m.get('nsfw_vocab_f1', '-')
     n = m.get('n_examples', '-')
-    lines.append(f'| {name:<40} | {bleu} | {chrf} | {bs} | {n} |')
+    lines.append(f'| {name:<40} | {chrf} | {bleu} | {nsfw_r} | {nsfw_f} | {n} |')
 
 (base / 'phase4_compare.md').write_text('\n'.join(lines))
 print('\n'.join(lines))

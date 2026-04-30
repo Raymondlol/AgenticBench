@@ -77,12 +77,81 @@ def compute_bertscore(hyps: List[str], refs: List[str], lang: str = "zh",
     }
 
 
+## ── ASMR-domain vocabulary hit-rate ────────────────────────────────
+# Pairs that fan-translation conventions agree on (Japanese term -> Chinese term).
+# We count: of all (ja_kw, zh_kw) pairs where ja_kw appears in the *reference*
+# zh translation (i.e. the human translator chose this term), what fraction
+# of the time the hypothesis also chose the same/equivalent CN term?
+NSFW_VOCAB_PAIRS = [
+    # body parts (ja-style fan translation -> common CN fan translation)
+    ("おまんこ", ["小穴", "屄"]),
+    ("まんこ",   ["小穴", "屄"]),
+    ("ちんちん", ["小鸡鸡", "小肉棒"]),
+    ("ちんぽ",   ["肉棒", "鸡巴", "鸡鸡"]),
+    ("おちんちん", ["鸡鸡", "肉棒"]),
+    # actions
+    ("射精",     ["射精", "射"]),
+    ("中出し",   ["内射", "中出"]),
+    ("精液",     ["精液"]),
+    # sounds typical of ASMR
+    ("オホ",     ["哦吼", "嗯哦"]),
+    ("舐め",     ["舔"]),
+    # sensations
+    ("気持ちいい", ["舒服", "好爽"]),
+    ("イク",     ["要去了", "要射了", "高潮", "去了"]),
+]
+
+
+def nsfw_vocab_recall(hyps: List[str], refs: List[str]) -> dict:
+    """For samples where the reference contains a known CN ASMR term,
+    check how often the hypothesis preserves it. Returns precision/recall
+    over the term universe."""
+    matched = 0      # ref has term + hyp has equivalent term
+    ref_has = 0      # ref has term (denominator for recall)
+    hyp_has = 0      # hyp has term (denominator for precision)
+    by_term = {}     # diagnostic
+    for hyp, ref in zip(hyps, refs):
+        for _, zh_alts in NSFW_VOCAB_PAIRS:
+            ref_match = any(z in ref for z in zh_alts)
+            hyp_match = any(z in hyp for z in zh_alts)
+            if ref_match:
+                ref_has += 1
+                key = zh_alts[0]
+                by_term.setdefault(key, {"ref_has": 0, "matched": 0})
+                by_term[key]["ref_has"] += 1
+                if hyp_match:
+                    matched += 1
+                    by_term[key]["matched"] += 1
+            if hyp_match:
+                hyp_has += 1
+    recall = matched / ref_has if ref_has else 0.0
+    precision = matched / hyp_has if hyp_has else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+    # Per-term recall for diagnostic
+    by_term_summary = {
+        k: {"recall": round(v["matched"] / v["ref_has"], 3) if v["ref_has"] else 0,
+            "n_ref": v["ref_has"]}
+        for k, v in by_term.items()
+    }
+    return {
+        "nsfw_vocab_precision": round(precision, 4),
+        "nsfw_vocab_recall": round(recall, 4),
+        "nsfw_vocab_f1": round(f1, 4),
+        "nsfw_vocab_n_ref": ref_has,
+        "nsfw_vocab_n_hyp": hyp_has,
+        "nsfw_vocab_per_term": by_term_summary,
+    }
+
+
 def compute_all_metrics(hyps: List[str], refs: List[str],
                          normalize: bool = True,
-                         skip_bertscore: bool = False) -> dict:
-    """Run all metrics. BLEU/chrF are required; BERTScore is best-effort.
-    If BERTScore fails (e.g. transformers/bert_score version mismatch),
-    we log the error and continue without it.
+                         skip_bertscore: bool = True) -> dict:
+    """Run pilot metrics: BLEU + chrF + ASMR vocab hit-rate.
+
+    BERTScore is intentionally OFF by default — bert-base-chinese is
+    trained on clean Wikipedia and doesn't differentiate ASMR vocabulary
+    well, so the score has poor signal for our task. chrF is the
+    primary metric (char-level, no tokenization needed for CN).
     """
     assert len(hyps) == len(refs), \
         f"Length mismatch: hyps={len(hyps)} refs={len(refs)}"
@@ -97,6 +166,10 @@ def compute_all_metrics(hyps: List[str], refs: List[str],
     out = {}
     out.update(compute_bleu(hyps_n, refs_n))
     out.update(compute_chrf(hyps_n, refs_n))
+    # NSFW vocab metric uses RAW (un-stripped) text so we don't lose terms
+    # to punctuation removal. This is intentional.
+    out.update(nsfw_vocab_recall(hyps, refs))
+
     if not skip_bertscore:
         try:
             out.update(compute_bertscore(hyps_n, refs_n, lang="zh"))
@@ -104,9 +177,7 @@ def compute_all_metrics(hyps: List[str], refs: List[str],
             err_msg = f"{type(e).__name__}: {e}"
             print(f"[WARN] BERTScore failed: {err_msg}", flush=True)
             out["bertscore_error"] = err_msg
-            out["bertscore_p"] = None
-            out["bertscore_r"] = None
-            out["bertscore_f1"] = None
+
     out["n_examples"] = len(hyps)
     return out
 
