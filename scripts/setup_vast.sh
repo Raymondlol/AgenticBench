@@ -17,8 +17,10 @@ echo "Python: $($PYTHON --version)"
 # 1. Install training requirements
 echo ""
 echo "--- Installing requirements ---"
-$PYTHON -m pip install --upgrade pip
-$PYTHON -m pip install -r train/requirements-train.txt
+# pip upgrade is best-effort (Debian-managed pip can't be uninstalled)
+$PYTHON -m pip install --upgrade pip --break-system-packages 2>/dev/null || \
+    echo "  (pip upgrade skipped — using system pip)"
+$PYTHON -m pip install --break-system-packages -r train/requirements-train.txt
 
 # 2. Verify CUDA + count GPUs
 echo ""
