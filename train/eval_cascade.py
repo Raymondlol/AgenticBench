@@ -138,10 +138,11 @@ def main():
     if args.output is None:
         args.output = f"out/cascade_{args.variant}_results.json"
 
-    # Load dataset + splits
-    from datasets import load_from_disk
-    ds = load_from_disk(str(Path(cfg["dataset"]["local_path"])))
-    splits = json.loads(Path(cfg["dataset"]["splits_path"]).read_text())
+    # Load dataset + splits (auto-detects local disk vs HF Hub)
+    sys.path.insert(0, str(Path(__file__).parent))
+    from data_utils import load_pilot_dataset, load_pilot_splits
+    ds = load_pilot_dataset(cfg)
+    splits = load_pilot_splits(cfg)
     target_works = set(splits[args.split]["work_ids"])
 
     indices = [i for i, ex in enumerate(ds) if ex["work_id"] in target_works]

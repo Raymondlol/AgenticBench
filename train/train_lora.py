@@ -184,14 +184,15 @@ def main():
     from transformers import (
         AutoProcessor, Trainer, TrainingArguments, set_seed,
     )
-    from datasets import load_from_disk
 
     set_seed(train_cfg["seed"])
 
-    # Load dataset + splits
+    # Load dataset + splits (auto-detects local disk vs HF Hub)
     print("Loading dataset...", flush=True)
-    ds = load_from_disk(str(Path(cfg["dataset"]["local_path"])))
-    splits = json.loads(Path(cfg["dataset"]["splits_path"]).read_text())
+    sys.path.insert(0, str(Path(__file__).parent))
+    from data_utils import load_pilot_dataset, load_pilot_splits
+    ds = load_pilot_dataset(cfg)
+    splits = load_pilot_splits(cfg)
 
     train_works = set(splits["train"]["work_ids"])
     val_works = set(splits["val"]["work_ids"])
