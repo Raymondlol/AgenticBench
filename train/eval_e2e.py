@@ -97,7 +97,8 @@ def main():
         audios = [a["array"] for a in batch["audio"]]
         sr = batch["audio"][0]["sampling_rate"]
 
-        inputs = processor(audios=audios, sampling_rate=sr,
+        # transformers >=5: kwarg renamed audios → audio
+        inputs = processor(audio=audios, sampling_rate=sr,
                            return_tensors="pt", padding=True)
         # Move to device with proper dtype for input_features
         inputs = {k: v.to(device, dtype=dtype if v.dtype.is_floating_point else v.dtype)

@@ -51,7 +51,7 @@ class SeamlessSTCollator:
 
         # Audio features
         audio_inputs = self.processor(
-            audios=audios, sampling_rate=sr,
+            audio=audios, sampling_rate=sr,
             return_tensors="pt", padding=True,
         )
 
@@ -142,7 +142,7 @@ def eval_chrf_on_dataset(model, processor, ds, tgt_lang: str,
         batch = ds[i:i + batch_size]
         audios = [a["array"] for a in batch["audio"]]
         sr = batch["audio"][0]["sampling_rate"]
-        inputs = processor(audios=audios, sampling_rate=sr,
+        inputs = processor(audio=audios, sampling_rate=sr,
                            return_tensors="pt", padding=True)
         inputs = {k: v.to(device, dtype=dtype if v.dtype.is_floating_point else v.dtype)
                   for k, v in inputs.items()}
