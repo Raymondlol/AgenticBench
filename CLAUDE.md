@@ -100,7 +100,7 @@ Final output: `out/phase4_compare.md` — 6-way table with chrF, BLEU, NSFW voca
 ## DO NOT
 
 - ❌ **Don't run `rm -rf` on `/workspace/.hf_home`** — that's 30GB of cached models, painful to redownload.
-- ❌ **Don't `git push --force`** — collaborator (the human user) is also pushing.
+- ❌ **Don't `git push`** at all — vast.ai has no GitHub credentials. Just commit locally; human will pull.
 - ❌ **Don't change config.yaml's eval settings without good reason** — eval batch sizes are tuned for 24GB cards.
 - ❌ **Don't rerun cascade_anime baseline** — already complete.
 - ❌ **Don't try abliterated Qwen** — already verified it doesn't help.

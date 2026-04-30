@@ -23,7 +23,7 @@ You are DONE when ALL of these are true:
 7. ✅ `out/phase3_ft_eval/ft_cascade_results.json` exists (C-Cascade evaluated)
 8. ✅ `out/phase3_ft_eval/ft_e2e_results.json` exists (C-E2E evaluated)
 9. ✅ `out/phase4_compare.md` contains the 6-way comparison table
-10. ✅ Everything in `out/` committed and pushed to `origin/main`
+10. ✅ Everything in `out/` committed locally (don't `git push` — no creds; the human will pull manually)
 11. ✅ First line of `out/STATUS.md` is `DONE`
 
 ## Suggested execution order
@@ -80,7 +80,9 @@ The naive serial execution wastes GPUs. To minimize wall time:
 Maintain these files in `out/`:
 - `STATUS.md` — append phase START/END timestamps. First line = `RUNNING` until done, then `DONE`.
 - `agent_decisions.md` — record every non-trivial decision (changed hyperparam, killed a job, switched approach). Format: `[ISO timestamp] decision: rationale`.
-- After each phase succeeds, `git add out/ && git commit -m "..." && git push`.
+- After each phase succeeds, `git add out/ && git commit -m "..."`.
+  Do NOT `git push` — there are no GitHub credentials on this machine.
+  The human will pull manually via `scp` or by `git push` after SSHing in with their PAT.
 
 ## When to escalate
 
