@@ -167,14 +167,48 @@ def main():
           flush=True)
 
     # Lazy import datasets to avoid hard-failing when not installed locally
-    from datasets import Dataset, Audio, Features, Value
+    import gc
+    from datasets import Dataset, Audio, Features, Value, concatenate_datasets, load_from_disk
 
     out_path.mkdir(parents=True, exist_ok=True)
 
-    all_segments = []
+    # Common Features schema
+    features = Features({
+        "audio": Audio(sampling_rate=seg_cfg["sample_rate"]),
+        "zh_text": Value("string"),
+        "work_id": Value("string"),
+        "source_id": Value("string"),
+        "audio_file": Value("string"),
+        "segment_idx": Value("int32"),
+        "start_s": Value("float32"),
+        "end_s": Value("float32"),
+        "dur_s": Value("float32"),
+    })
+
+    # Per-work staging directory (each work saved as its own mini-dataset)
+    staging_dir = out_path.parent / (out_path.name + "_staging")
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    work_paths = []
+    total_segs = 0
     total_dur_s = 0.0
 
     for i, wd in enumerate(work_dirs):
+        work_stage = staging_dir / wd.name
+        # Skip if already staged (resume support)
+        if work_stage.exists() and (work_stage / "dataset_info.json").exists():
+            try:
+                ds_w = load_from_disk(str(work_stage))
+                work_paths.append(work_stage)
+                total_segs += len(ds_w)
+                total_dur_s += sum(float(d) for d in ds_w["dur_s"])
+                print(f"[{i+1}/{len(work_dirs)}] {wd.name}... {len(ds_w)} segs [cached]", flush=True)
+                del ds_w
+                gc.collect()
+                continue
+            except Exception:
+                pass  # rebuild
+
         print(f"[{i+1}/{len(work_dirs)}] {wd.name}...", end="", flush=True)
         try:
             segs = build_segments(
@@ -193,37 +227,44 @@ def main():
             print(" 0 segs", flush=True)
             continue
 
-        all_segments.extend(segs)
         work_dur = sum(s["dur_s"] for s in segs)
+        # Save this work to staging IMMEDIATELY, then drop from memory
+        ds_w = Dataset.from_list(segs, features=features)
+        ds_w.save_to_disk(str(work_stage))
+        work_paths.append(work_stage)
+        total_segs += len(segs)
         total_dur_s += work_dur
         print(f" {len(segs)} segs ({work_dur/60:.1f}min)", flush=True)
 
-    if not all_segments:
+        # Free memory
+        del segs, ds_w
+        gc.collect()
+
+    if not work_paths:
         print("No segments built. Exiting.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"\nTotal: {len(all_segments)} segments, {total_dur_s/3600:.2f}h", flush=True)
+    print(f"\nTotal: {total_segs} segments, {total_dur_s/3600:.2f}h", flush=True)
 
-    # Build HF Dataset
-    features = Features({
-        "audio": Audio(sampling_rate=seg_cfg["sample_rate"]),
-        "zh_text": Value("string"),
-        "work_id": Value("string"),
-        "source_id": Value("string"),
-        "audio_file": Value("string"),
-        "segment_idx": Value("int32"),
-        "start_s": Value("float32"),
-        "end_s": Value("float32"),
-        "dur_s": Value("float32"),
-    })
+    # Concatenate all staged per-work datasets
+    print(f"\nConcatenating {len(work_paths)} per-work datasets...", flush=True)
+    all_ds = []
+    for p in work_paths:
+        all_ds.append(load_from_disk(str(p)))
+    final_ds = concatenate_datasets(all_ds)
+    print(f"Final dataset: {final_ds}", flush=True)
 
-    ds = Dataset.from_list(all_segments, features=features)
-    print(f"Dataset built: {ds}", flush=True)
-
-    # Save to disk
+    # Save to final location with shard size cap
     print(f"Saving to {out_path}...", flush=True)
-    ds.save_to_disk(str(out_path), max_shard_size="500MB")
-    print(f"Done. Shards: {sorted(p.name for p in out_path.iterdir())}", flush=True)
+    final_ds.save_to_disk(str(out_path), max_shard_size="500MB")
+    print(f"Done. Files in {out_path}:", flush=True)
+    for f in sorted(out_path.iterdir()):
+        size_mb = f.stat().st_size / (1024 * 1024) if f.is_file() else 0
+        print(f"  {f.name}  ({size_mb:.1f}MB)", flush=True)
+
+    # Cleanup staging
+    print(f"\nKeeping staging dir at {staging_dir} for resume safety.", flush=True)
+    print(f"Delete manually with: rm -rf '{staging_dir}'", flush=True)
 
 
 if __name__ == "__main__":
