@@ -128,6 +128,9 @@ def main():
                         help="Default: out/cascade_{variant}_results.json")
     parser.add_argument("--batch-size", type=int, default=None,
                         help="Override config eval.batch_size")
+    parser.add_argument("--mt-lora-ckpt", default=None,
+                        help="Path to LoRA adapter dir to apply on top of MT model "
+                             "(only valid for --variant anime / mt_type qwen)")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text())
@@ -189,6 +192,12 @@ def main():
         mt_model = AutoModelForCausalLM.from_pretrained(
             variant_cfg["mt_model"], torch_dtype=dtype, device_map="auto"
         )
+        # Optionally apply LoRA adapter (e.g. ASMR-domain fine-tune)
+        if args.mt_lora_ckpt:
+            print(f"Applying LoRA adapter: {args.mt_lora_ckpt}", flush=True)
+            from peft import PeftModel
+            mt_model = PeftModel.from_pretrained(mt_model, args.mt_lora_ckpt)
+            mt_model = mt_model.merge_and_unload()
     else:
         raise ValueError(f"Unknown mt_type: {mt_type}")
     mt_model.eval()
