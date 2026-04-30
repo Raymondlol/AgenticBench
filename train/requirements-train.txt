@@ -9,7 +9,9 @@
 transformers>=4.45.0   # required for Qwen2.5 + SeamlessM4T-v2
 peft>=0.13.0
 accelerate>=1.0.0
-datasets>=3.0.0
+# datasets 4.x calls AudioDecoder(num_channels=...) which needs torchcodec>=0.4.
+# We pin torchcodec 0.3 (last version compatible with torch 2.7), so cap datasets.
+datasets>=3.0.0,<4.0.0
 tokenizers>=0.20.0     # Qwen tokenizer
 
 # Optional: bitsandbytes for 4-bit Qwen if memory becomes tight
