@@ -20,6 +20,29 @@ echo "--- Installing requirements ---"
 # pip upgrade is best-effort (Debian-managed pip can't be uninstalled)
 $PYTHON -m pip install --upgrade pip --break-system-packages 2>/dev/null || \
     echo "  (pip upgrade skipped — using system pip)"
+
+# Detect CUDA version from driver. PyTorch wheels are tied to a specific
+# CUDA toolkit version, which must be ≤ what the driver supports.
+# Driver 525+ (CUDA 12.0+) → cu121 works
+# Driver 545+ (CUDA 12.4+) → cu124 works
+# Driver 550+ (CUDA 12.5+) → cu124 works
+# Driver < 525 → fall back to cu118
+DRIVER_CUDA=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
+if [ -z "$DRIVER_CUDA" ] || [ "$DRIVER_CUDA" -lt 525 ]; then
+    TORCH_INDEX="https://download.pytorch.org/whl/cu118"
+    echo "  Detected old/no driver — using torch+cu118"
+elif [ "$DRIVER_CUDA" -lt 545 ]; then
+    TORCH_INDEX="https://download.pytorch.org/whl/cu121"
+    echo "  Detected driver $DRIVER_CUDA (CUDA 12.0-12.3) — using torch+cu121"
+else
+    TORCH_INDEX="https://download.pytorch.org/whl/cu124"
+    echo "  Detected driver $DRIVER_CUDA (CUDA 12.4+) — using torch+cu124"
+fi
+
+# Install torch first (with explicit CUDA wheel), then the rest
+$PYTHON -m pip install --break-system-packages \
+    torch torchvision torchaudio "torchcodec<0.5" \
+    --index-url "$TORCH_INDEX"
 $PYTHON -m pip install --break-system-packages -r train/requirements-train.txt
 
 # 2. Verify CUDA + count GPUs

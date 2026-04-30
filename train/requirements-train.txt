@@ -3,7 +3,9 @@
 # Install with: pip install -r requirements-train.txt
 
 # Core ML
-torch>=2.4.0
+# Note: torch is installed separately by setup_vast.sh with the right CUDA index URL.
+# Do not pin torch here, otherwise pip will pull the latest (CUDA 13) which won't
+# work on instances with driver < 575.
 transformers>=4.45.0   # required for Qwen2.5 + SeamlessM4T-v2
 peft>=0.13.0
 accelerate>=1.0.0
