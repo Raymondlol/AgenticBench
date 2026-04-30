@@ -27,22 +27,32 @@ $PYTHON -m pip install --upgrade pip --break-system-packages 2>/dev/null || \
 # Driver 545+ (CUDA 12.4+) → cu124 works
 # Driver 550+ (CUDA 12.5+) → cu124 works
 # Driver < 525 → fall back to cu118
+# Driver → torch wheel mapping (audio decoding requires torchcodec>=0.3 →
+# torch>=2.7 → cu126 wheel index)
 DRIVER_CUDA=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
 if [ -z "$DRIVER_CUDA" ] || [ "$DRIVER_CUDA" -lt 525 ]; then
     TORCH_INDEX="https://download.pytorch.org/whl/cu118"
-    echo "  Detected old/no driver — using torch+cu118"
-elif [ "$DRIVER_CUDA" -lt 545 ]; then
+    TORCH_VER="torch>=2.4,<2.6"
+    TORCHCODEC_VER="torchcodec<0.2"
+    echo "  Detected old/no driver — using torch+cu118 (audio decoding may be limited)"
+elif [ "$DRIVER_CUDA" -lt 555 ]; then
     TORCH_INDEX="https://download.pytorch.org/whl/cu121"
-    echo "  Detected driver $DRIVER_CUDA (CUDA 12.0-12.3) — using torch+cu121"
+    TORCH_VER="torch>=2.5,<2.6"
+    TORCHCODEC_VER="torchcodec<0.2"
+    echo "  Detected driver $DRIVER_CUDA — using torch+cu121"
 else
-    TORCH_INDEX="https://download.pytorch.org/whl/cu124"
-    echo "  Detected driver $DRIVER_CUDA (CUDA 12.4+) — using torch+cu124"
+    # Driver 555+ supports CUDA 12.6+ wheels.
+    # cu126 + torch 2.7 + torchcodec 0.3 is the combo that works for AudioDecoder.
+    TORCH_INDEX="https://download.pytorch.org/whl/cu126"
+    TORCH_VER="torch>=2.7,<2.8"
+    TORCHCODEC_VER="torchcodec==0.3.0"
+    echo "  Detected driver $DRIVER_CUDA — using torch+cu126 (recommended)"
 fi
 
-# Install torch first (with explicit CUDA wheel), then the rest
-$PYTHON -m pip install --break-system-packages \
-    torch torchvision torchaudio "torchcodec<0.5" \
+# Install torch first (CUDA-matched wheel), then torchcodec, then the rest
+$PYTHON -m pip install --break-system-packages "$TORCH_VER" torchvision torchaudio \
     --index-url "$TORCH_INDEX"
+$PYTHON -m pip install --break-system-packages "$TORCHCODEC_VER"
 $PYTHON -m pip install --break-system-packages -r train/requirements-train.txt
 
 # 2. Verify CUDA + count GPUs
