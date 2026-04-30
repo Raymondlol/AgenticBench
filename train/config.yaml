@@ -11,7 +11,7 @@ dataset:
   local_path: /Users/raymond/WorkSpace/ASMR-Data/hf_cache/seg_dataset
   splits_path: /Users/raymond/WorkSpace/ASMR-Data/hf_cache/splits.json
   # HF Hub repo for syncing to vast.ai (private)
-  hub_repo: null   # set after upload_dataset.py runs, e.g. "yourname/asmr-pilot-50h"
+  hub_repo: Raymxnd/asmr-pilot-50h
 
 # Audio segmentation params (used by build_dataset.py)
 segmentation:
