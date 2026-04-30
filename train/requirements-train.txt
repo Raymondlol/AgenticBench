@@ -14,8 +14,10 @@ accelerate>=1.0.0
 datasets>=3.0.0,<4.0.0
 tokenizers>=0.20.0     # Qwen tokenizer
 
-# Optional: bitsandbytes for 4-bit Qwen if memory becomes tight
-# bitsandbytes>=0.43.0
+# 4-bit quantization for QLoRA on Sakura-14B (won't fit BF16 on 24GB 4090)
+bitsandbytes>=0.43.0
+# AWQ quantized models (Sakura-14B-AWQ inference)
+autoawq>=0.2.6
 
 # SeamlessM4T-v2 needs sentencepiece tokenizer
 sentencepiece>=0.2.0

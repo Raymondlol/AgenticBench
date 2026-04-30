@@ -63,6 +63,9 @@ def main():
                         help="Default: ASMR-Data/hf_cache/train_with_ja.jsonl")
     parser.add_argument("--output-dir", default="out/qwen-lora-pilot")
     parser.add_argument("--model-id", default="Qwen/Qwen2.5-7B-Instruct")
+    parser.add_argument("--use-sakura", action="store_true",
+                        help="Use Sakura-14B-Qwen2.5 as base (overrides --model-id), "
+                             "with QLoRA (4-bit base) for 4090 memory fit")
     parser.add_argument("--max-steps", type=int, default=None,
                         help="Override num_train_epochs (smoke test)")
     parser.add_argument("--no-eval", action="store_true")
@@ -75,6 +78,12 @@ def main():
     cfg = yaml.safe_load(Path(args.config).read_text())
     variant = cfg["eval"]["cascade_variants"]["anime"]
     prompt_template = variant["mt_prompt"]
+
+    if args.use_sakura:
+        # Sakura-14B-Qwen2.5; non-AWQ base for QLoRA (need to inject 4-bit at load)
+        args.model_id = "SakuraLLM/Sakura-14B-Qwen2.5-v1.0"
+        print(f"--use-sakura: training on top of {args.model_id} with QLoRA",
+              flush=True)
 
     data_jsonl = Path(args.data_jsonl) if args.data_jsonl else Path(
         "/workspace/ASMR-Data/hf_cache/train_with_ja.jsonl"
@@ -119,9 +128,28 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     dtype = torch.bfloat16
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_id, torch_dtype=dtype, attn_implementation="sdpa")
-    model.gradient_checkpointing_enable()
+
+    if args.use_sakura:
+        # QLoRA: 4-bit quantized base for 4090 memory fit (14B FP16 = 28GB > 24GB)
+        from transformers import BitsAndBytesConfig
+        from peft import prepare_model_for_kbit_training
+        bnb_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=dtype,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_id,
+            quantization_config=bnb_cfg,
+            device_map="auto",
+            attn_implementation="sdpa",
+        )
+        model = prepare_model_for_kbit_training(model)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_id, torch_dtype=dtype, attn_implementation="sdpa")
+        model.gradient_checkpointing_enable()
 
     # LoRA: target attention + MLP projections (typical for Qwen2.5)
     peft_config = LoraConfig(

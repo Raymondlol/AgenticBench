@@ -131,11 +131,26 @@ def main():
     parser.add_argument("--mt-lora-ckpt", default=None,
                         help="Path to LoRA adapter dir to apply on top of MT model "
                              "(only valid for --variant anime / mt_type qwen)")
+    parser.add_argument("--use-sakura", action="store_true",
+                        help="Replace Qwen with Sakura-14B-Qwen2.5 (AWQ) "
+                             "for cascade anime variant")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text())
     eval_cfg = cfg["eval"]
-    variant_cfg = eval_cfg["cascade_variants"][args.variant]
+    variant_cfg = dict(eval_cfg["cascade_variants"][args.variant])  # mutable copy
+
+    # Optionally swap MT model to Sakura (Japanese→Chinese expert LLM)
+    if args.use_sakura:
+        if variant_cfg.get("mt_type") != "qwen":
+            print("WARN: --use-sakura only meaningful for variant=anime (mt_type=qwen)",
+                  flush=True)
+        # Sakura-14B AWQ; Qwen2.5-based, drop-in compatible
+        variant_cfg["mt_model"] = "SakuraLLM/Sakura-14B-Qwen2.5-v1.0-AWQ"
+        variant_cfg["mt_use_awq"] = True
+        print(f"--use-sakura: switching MT model to {variant_cfg['mt_model']}",
+              flush=True)
+
     batch_size = args.batch_size or eval_cfg["batch_size"]
 
     if args.output is None:
@@ -189,15 +204,26 @@ def main():
     elif mt_type == "qwen":
         from transformers import AutoTokenizer, AutoModelForCausalLM
         mt_tok = AutoTokenizer.from_pretrained(variant_cfg["mt_model"])
+        load_kwargs = dict(device_map="auto")
+        if variant_cfg.get("mt_use_awq"):
+            # AWQ models don't take torch_dtype; rely on AutoAWQ via transformers
+            load_kwargs["torch_dtype"] = "auto"
+        else:
+            load_kwargs["torch_dtype"] = dtype
         mt_model = AutoModelForCausalLM.from_pretrained(
-            variant_cfg["mt_model"], torch_dtype=dtype, device_map="auto"
+            variant_cfg["mt_model"], **load_kwargs
         )
         # Optionally apply LoRA adapter (e.g. ASMR-domain fine-tune)
         if args.mt_lora_ckpt:
             print(f"Applying LoRA adapter: {args.mt_lora_ckpt}", flush=True)
             from peft import PeftModel
             mt_model = PeftModel.from_pretrained(mt_model, args.mt_lora_ckpt)
-            mt_model = mt_model.merge_and_unload()
+            # Note: merge_and_unload may not work cleanly on AWQ models;
+            # if it errors, just leave the adapter attached.
+            try:
+                mt_model = mt_model.merge_and_unload()
+            except Exception as e:
+                print(f"  merge_and_unload skipped: {e}", flush=True)
     else:
         raise ValueError(f"Unknown mt_type: {mt_type}")
     mt_model.eval()

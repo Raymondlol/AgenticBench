@@ -80,7 +80,10 @@ def compute_bertscore(hyps: List[str], refs: List[str], lang: str = "zh",
 def compute_all_metrics(hyps: List[str], refs: List[str],
                          normalize: bool = True,
                          skip_bertscore: bool = False) -> dict:
-    """Run all metrics. Pads hyps to match refs length if mismatched."""
+    """Run all metrics. BLEU/chrF are required; BERTScore is best-effort.
+    If BERTScore fails (e.g. transformers/bert_score version mismatch),
+    we log the error and continue without it.
+    """
     assert len(hyps) == len(refs), \
         f"Length mismatch: hyps={len(hyps)} refs={len(refs)}"
 
@@ -95,7 +98,15 @@ def compute_all_metrics(hyps: List[str], refs: List[str],
     out.update(compute_bleu(hyps_n, refs_n))
     out.update(compute_chrf(hyps_n, refs_n))
     if not skip_bertscore:
-        out.update(compute_bertscore(hyps_n, refs_n, lang="zh"))
+        try:
+            out.update(compute_bertscore(hyps_n, refs_n, lang="zh"))
+        except Exception as e:
+            err_msg = f"{type(e).__name__}: {e}"
+            print(f"[WARN] BERTScore failed: {err_msg}", flush=True)
+            out["bertscore_error"] = err_msg
+            out["bertscore_p"] = None
+            out["bertscore_r"] = None
+            out["bertscore_f1"] = None
     out["n_examples"] = len(hyps)
     return out
 
