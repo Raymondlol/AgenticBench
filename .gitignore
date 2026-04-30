@@ -53,3 +53,7 @@ scan_results.json
 .env
 *.token
 hf_token.txt
+
+# Misc
+nohup.out
+/tmp/*.log

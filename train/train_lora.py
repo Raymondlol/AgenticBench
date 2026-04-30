@@ -259,24 +259,43 @@ def main():
         ta_kwargs["max_steps"] = args.max_steps
         ta_kwargs.pop("num_train_epochs", None)
 
+    # DDP: LoRA freezes most params, so DDP needs ddp_find_unused_parameters=True
+    # to avoid hanging on params that don't get gradients. This adds small overhead
+    # but is required for LoRA + multi-GPU.
+    if torch.cuda.device_count() > 1:
+        ta_kwargs["ddp_find_unused_parameters"] = True
+        print(f"Detected {torch.cuda.device_count()} GPUs; enabling DDP w/ "
+              f"find_unused_parameters=True", flush=True)
+
     training_args = TrainingArguments(**ta_kwargs)
 
     # Custom Trainer with chrF eval (HF Trainer's compute_metrics expects logits;
     # here we use generation, so override evaluate())
+    #
+    # DDP-safe: chrF generative eval is expensive (uses .generate()), so we
+    # only run it on the main process. Other ranks return early after the
+    # standard loss eval. The chrF metric is broadcast back via self.log().
     class GenerativeTrainer(Trainer):
         def evaluate(self, eval_dataset=None, ignore_keys=None,
                      metric_key_prefix="eval"):
-            # Run loss-based eval first (default)
+            # Run loss-based eval first (Trainer handles DDP all-gather)
             metrics = super().evaluate(
                 eval_dataset=eval_dataset,
                 ignore_keys=ignore_keys,
                 metric_key_prefix=metric_key_prefix,
             )
-            # Then run generative chrF eval
+
+            # Generative chrF eval: only main process
+            if not self.is_world_process_zero():
+                return metrics
+
             ds_to_eval = eval_dataset if eval_dataset is not None else self.eval_dataset
             try:
+                # Use unwrapped model for .generate() (avoids DDP wrapper issues)
+                gen_model = self.accelerator.unwrap_model(self.model) \
+                    if hasattr(self, "accelerator") else self.model
                 chrf_metrics = eval_chrf_on_dataset(
-                    self.model, processor, ds_to_eval,
+                    gen_model, processor, ds_to_eval,
                     tgt_lang=cfg["tgt_lang"],
                     max_new_tokens=cfg["eval"]["max_new_tokens"],
                     num_beams=cfg["eval"].get("num_beams", 1),  # use 1 during training for speed

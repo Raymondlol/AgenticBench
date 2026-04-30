@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Setup script for vast.ai H100 instance.
+# Setup script for vast.ai instance (single or multi-GPU).
 # Run after `git clone <repo> && cd asmr-pilot`.
 #
 # Usage:
@@ -7,9 +7,10 @@
 
 set -euo pipefail
 
-echo "=== ASMR Pilot — vast.ai setup ==="
+echo "=============================================="
+echo "  ASMR Pilot — vast.ai setup"
+echo "=============================================="
 
-# Default Python on vast.ai PyTorch images is /usr/bin/python3 (3.10/3.11)
 PYTHON="${PYTHON:-python3}"
 echo "Python: $($PYTHON --version)"
 
@@ -19,13 +20,65 @@ echo "--- Installing requirements ---"
 $PYTHON -m pip install --upgrade pip
 $PYTHON -m pip install -r train/requirements-train.txt
 
-# 2. Verify CUDA is visible to torch
+# 2. Verify CUDA + count GPUs
 echo ""
-echo "--- CUDA check ---"
-$PYTHON -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}, devices={torch.cuda.device_count()}')"
-$PYTHON -c "import torch; print(f'GPU: {torch.cuda.get_device_name(0)}' if torch.cuda.is_available() else 'NO GPU')"
+echo "--- CUDA / GPU check ---"
+$PYTHON -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}')"
+NGPU=$(nvidia-smi --list-gpus 2>/dev/null | wc -l | tr -d ' ')
+echo "Detected ${NGPU} GPU(s):"
+nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null | sed 's/^/  /'
 
-# 3. HuggingFace login (interactive — needs HF_TOKEN env or manual paste)
+# 3. Generate accelerate config based on detected GPU count
+echo ""
+echo "--- Generating accelerate config ---"
+ACC_CFG="$HOME/.cache/huggingface/accelerate/default_config.yaml"
+mkdir -p "$(dirname $ACC_CFG)"
+
+if [ "$NGPU" -gt 1 ]; then
+    cat > "$ACC_CFG" <<EOF
+compute_environment: LOCAL_MACHINE
+debug: false
+distributed_type: MULTI_GPU
+downcast_bf16: 'no'
+enable_cpu_affinity: false
+gpu_ids: all
+machine_rank: 0
+main_training_function: main
+mixed_precision: bf16
+num_machines: 1
+num_processes: ${NGPU}
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+EOF
+    echo "Generated DDP config for ${NGPU} GPUs at $ACC_CFG"
+else
+    cat > "$ACC_CFG" <<EOF
+compute_environment: LOCAL_MACHINE
+debug: false
+distributed_type: 'NO'
+downcast_bf16: 'no'
+enable_cpu_affinity: false
+gpu_ids: '0'
+machine_rank: 0
+main_training_function: main
+mixed_precision: bf16
+num_machines: 1
+num_processes: 1
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+EOF
+    echo "Generated single-GPU config at $ACC_CFG"
+fi
+
+# 4. HuggingFace login
 echo ""
 echo "--- HuggingFace login ---"
 if [ -n "${HF_TOKEN:-}" ]; then
@@ -36,16 +89,18 @@ else
     echo "Run: huggingface-cli login   (paste your token)"
 fi
 
-# 4. (optional) wandb login
+# 5. wandb login (optional)
 echo ""
 echo "--- wandb login (optional) ---"
 if [ -n "${WANDB_API_KEY:-}" ]; then
     $PYTHON -c "import wandb; wandb.login(key='${WANDB_API_KEY}')"
 else
-    echo "WANDB_API_KEY env var not set. Set or run: wandb login"
+    echo "WANDB_API_KEY env var not set."
+    echo "If you want loss curves: export WANDB_API_KEY=... or run wandb login"
+    echo "Or set in train/config.yaml: report_to: 'none' to disable"
 fi
 
-# 5. Show env summary
+# 6. Summary + recommended commands
 echo ""
 echo "--- Environment summary ---"
 $PYTHON -c "
@@ -55,13 +110,36 @@ print(f'torch:        {torch.__version__}')
 print(f'transformers: {transformers.__version__}')
 print(f'peft:         {peft.__version__}')
 print(f'datasets:     {datasets.__version__}')
-print(f'CUDA:         {torch.version.cuda} (available: {torch.cuda.is_available()})')
+print(f'CUDA:         {torch.version.cuda} (devices: {torch.cuda.device_count()})')
 "
 
 echo ""
-echo "=== Setup complete ==="
+echo "=============================================="
+echo "  Setup complete! Recommended workflow:"
+echo "=============================================="
 echo ""
-echo "Next steps:"
-echo "  1. Sync dataset:  python -c \"from datasets import load_dataset; load_dataset('YOUR_REPO/asmr-pilot-50h', token='YOUR_TOKEN')\""
-echo "  2. Smoke test:    python train/eval_e2e.py --zero-shot --max-samples 20 --output out/smoke.json"
-echo "  3. Train:         accelerate launch train/train_lora.py"
+echo "1. Cache dataset locally (first time only):"
+echo "   python -c 'from datasets import load_dataset; load_dataset(\"Raymxnd/asmr-pilot-50h\")'"
+echo ""
+echo "2. Smoke test (quick validation):"
+echo "   bash scripts/run_baselines.sh --max-samples 20"
+echo "   accelerate launch train/train_lora.py --max-steps 10 --no-eval"
+echo ""
+echo "3. Full baselines (parallel across GPUs):"
+echo "   bash scripts/run_baselines.sh"
+echo ""
+if [ "$NGPU" -gt 1 ]; then
+echo "4. LoRA training (DDP across ${NGPU} GPUs):"
+echo "   accelerate launch train/train_lora.py"
+echo ""
+echo "   ⚠ With ${NGPU} GPUs, effective batch size = 4 × 4 × ${NGPU} = $((4*4*NGPU))"
+echo "      To preserve original effective bs=16, edit train/config.yaml:"
+echo "      grad_accum_steps: $((4 / NGPU > 0 ? 4 / NGPU : 1))"
+else
+echo "4. LoRA training (single GPU):"
+echo "   accelerate launch train/train_lora.py"
+fi
+echo ""
+echo "5. Eval fine-tuned model:"
+echo "   python train/eval_e2e.py --ckpt out/seamless-lora-pilot/best \\"
+echo "       --output out/ft_results.json"
